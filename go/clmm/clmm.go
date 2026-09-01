@@ -122,6 +122,13 @@ type QuoteExactInputParams struct {
 	XForY          bool
 	SqrtPriceLimit *big.Int
 }
+type QuoteExactOutputParams struct {
+	Sender         onchainSui.Address
+	Pool           Pool
+	AmountOut      uint64
+	XForY          bool
+	SqrtPriceLimit *big.Int
+}
 type QuoteResult struct {
 	AmountIn  uint64
 	AmountOut uint64
@@ -172,39 +179,73 @@ func (q *Quoter) QuoteExactInput(ctx context.Context, params QuoteExactInputPara
 	if params.Sender.IsZero() || params.Pool.Address.IsZero() || params.Pool.InitialVersion == 0 || params.AmountIn == 0 || !validU128(params.SqrtPriceLimit) {
 		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: parameters=invalid")
 	}
-	b := onchainSui.NewProgrammableTransactionBuilder()
-	pool, err := b.Object(onchainSui.InputKindShared, onchainSui.ObjectInput{Address: params.Pool.Address, Version: params.Pool.InitialVersion})
+	amountOut, err := q.quote(ctx, params.Sender, params.Pool, params.AmountIn, params.XForY, true, params.SqrtPriceLimit)
 	if err != nil {
 		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: %w", err)
 	}
-	direction, _ := b.Pure(bcsBool(params.XForY))
-	exact, _ := b.Pure(bcsBool(true))
-	limit, _ := b.Pure(bcsUint128(params.SqrtPriceLimit))
-	amount, _ := b.Pure(bcsUint64(params.AmountIn))
-	state, err := b.MoveCall(onchainSui.MoveCall{Package: q.deployment.PublishedAt, Module: q.deployment.TradeModule, Function: "compute_swap_result", TypeArguments: []string{params.Pool.CoinTypeX, params.Pool.CoinTypeY}, Arguments: []onchainSui.Argument{pool, direction, exact, limit, amount}})
+	return QuoteResult{AmountIn: params.AmountIn, AmountOut: amountOut}, nil
+}
+
+// QuoteExactOutput simulates Momentum trade::compute_swap_result for an exact output.
+//
+// Parameters:
+//   - ctx: Request context.
+//   - params: Quote parameters.
+//
+// Returns:
+//   - Quote result.
+//   - Quote error.
+//
+// Version:
+//   - 2026-09-01: Added.
+func (q *Quoter) QuoteExactOutput(ctx context.Context, params QuoteExactOutputParams) (QuoteResult, error) {
+	if q == nil || q.simulator == nil {
+		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact output: quoter=null")
+	}
+	if params.Sender.IsZero() || params.Pool.Address.IsZero() || params.Pool.InitialVersion == 0 || params.AmountOut == 0 || !validU128(params.SqrtPriceLimit) {
+		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact output: parameters=invalid")
+	}
+	amountIn, err := q.quote(ctx, params.Sender, params.Pool, params.AmountOut, params.XForY, false, params.SqrtPriceLimit)
 	if err != nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: %w", err)
+		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact output: %w", err)
+	}
+	return QuoteResult{AmountIn: amountIn, AmountOut: params.AmountOut}, nil
+}
+
+func (q *Quoter) quote(ctx context.Context, sender onchainSui.Address, poolState Pool, amountSpecified uint64, xForY, exactInput bool, sqrtPriceLimit *big.Int) (uint64, error) {
+	b := onchainSui.NewProgrammableTransactionBuilder()
+	pool, err := b.Object(onchainSui.InputKindShared, onchainSui.ObjectInput{Address: poolState.Address, Version: poolState.InitialVersion})
+	if err != nil {
+		return 0, fmt.Errorf("failed to build momentum clmm quote: %w", err)
+	}
+	direction, _ := b.Pure(bcsBool(xForY))
+	exact, _ := b.Pure(bcsBool(exactInput))
+	limit, _ := b.Pure(bcsUint128(sqrtPriceLimit))
+	amount, _ := b.Pure(bcsUint64(amountSpecified))
+	state, err := b.MoveCall(onchainSui.MoveCall{Package: q.deployment.PublishedAt, Module: q.deployment.TradeModule, Function: "compute_swap_result", TypeArguments: []string{poolState.CoinTypeX, poolState.CoinTypeY}, Arguments: []onchainSui.Argument{pool, direction, exact, limit, amount}})
+	if err != nil {
+		return 0, fmt.Errorf("failed to build momentum clmm quote: %w", err)
 	}
 	_, err = b.MoveCall(onchainSui.MoveCall{Package: q.deployment.PublishedAt, Module: q.deployment.TradeModule, Function: "get_state_amount_calculated", Arguments: []onchainSui.Argument{state}})
 	if err != nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: %w", err)
+		return 0, fmt.Errorf("failed to build momentum clmm quote: %w", err)
 	}
 	tx, err := b.Build()
 	if err != nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: %w", err)
+		return 0, fmt.Errorf("failed to build momentum clmm quote: %w", err)
 	}
-	simulation, err := q.simulator.SimulateTransaction(ctx, onchainSui.SimulationRequest{Sender: params.Sender, Transaction: tx})
+	simulation, err := q.simulator.SimulateTransaction(ctx, onchainSui.SimulationRequest{Sender: sender, Transaction: tx})
 	if err != nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: %w", err)
+		return 0, fmt.Errorf("failed to simulate momentum clmm quote: %w", err)
 	}
 	if len(simulation.CommandResults) < 2 || len(simulation.CommandResults[1].ReturnValues) == 0 || len(simulation.CommandResults[1].ReturnValues[0].BCS) < 8 {
-		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: command_result=invalid")
+		return 0, fmt.Errorf("failed to decode momentum clmm quote: command_result=invalid")
 	}
-	amountOut := binary.LittleEndian.Uint64(simulation.CommandResults[1].ReturnValues[0].BCS[:8])
-	if amountOut == 0 {
-		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact input: amount_out=empty")
+	amountCalculated := binary.LittleEndian.Uint64(simulation.CommandResults[1].ReturnValues[0].BCS[:8])
+	if amountCalculated == 0 {
+		return 0, fmt.Errorf("failed to decode momentum clmm quote: amount_calculated=empty")
 	}
-	return QuoteResult{AmountIn: params.AmountIn, AmountOut: amountOut}, nil
+	return amountCalculated, nil
 }
 
 type FlashSwap struct {
@@ -241,13 +282,20 @@ func AppendFlashSwap(builder *onchainSui.ProgrammableTransactionBuilder, deploym
 	if pool.Address.IsZero() || pool.InitialVersion == 0 || amount == 0 || !validU128(sqrtPriceLimit) {
 		return FlashSwap{}, fmt.Errorf("failed to append momentum clmm flash swap: parameters=invalid")
 	}
+	amountArg, err := builder.Pure(bcsUint64(amount))
+	if err != nil {
+		return FlashSwap{}, fmt.Errorf("failed to append momentum clmm flash swap: %w", err)
+	}
+	return appendFlashSwap(builder, deployment, pool, xForY, amountArg, sqrtPriceLimit)
+}
+
+func appendFlashSwap(builder *onchainSui.ProgrammableTransactionBuilder, deployment Deployment, pool Pool, xForY bool, amount onchainSui.Argument, sqrtPriceLimit *big.Int) (FlashSwap, error) {
 	poolArg, err := builder.Object(onchainSui.InputKindShared, onchainSui.ObjectInput{Address: pool.Address, Version: pool.InitialVersion, Mutable: true})
 	if err != nil {
 		return FlashSwap{}, fmt.Errorf("failed to append momentum clmm flash swap: %w", err)
 	}
 	direction, _ := builder.Pure(bcsBool(xForY))
 	exact, _ := builder.Pure(bcsBool(true))
-	amountArg, _ := builder.Pure(bcsUint64(amount))
 	limit, _ := builder.Pure(bcsUint128(sqrtPriceLimit))
 	clock := deployment.Clock
 	clock.Mutable = false
@@ -261,7 +309,7 @@ func AppendFlashSwap(builder *onchainSui.ProgrammableTransactionBuilder, deploym
 	if err != nil {
 		return FlashSwap{}, fmt.Errorf("failed to append momentum clmm flash swap: %w", err)
 	}
-	result, err := builder.MoveCall(onchainSui.MoveCall{Package: deployment.PublishedAt, Module: deployment.TradeModule, Function: "flash_swap", TypeArguments: []string{pool.CoinTypeX, pool.CoinTypeY}, Arguments: []onchainSui.Argument{poolArg, direction, exact, amountArg, limit, clockArg, versionArg}})
+	result, err := builder.MoveCall(onchainSui.MoveCall{Package: deployment.PublishedAt, Module: deployment.TradeModule, Function: "flash_swap", TypeArguments: []string{pool.CoinTypeX, pool.CoinTypeY}, Arguments: []onchainSui.Argument{poolArg, direction, exact, amount, limit, clockArg, versionArg}})
 	if err != nil {
 		return FlashSwap{}, fmt.Errorf("failed to append momentum clmm flash swap: %w", err)
 	}

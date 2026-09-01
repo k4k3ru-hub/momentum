@@ -108,6 +108,25 @@ func (c *Client) QuoteExactInput(ctx context.Context, params QuoteExactInputPara
 	return c.quoter.QuoteExactInput(ctx, params)
 }
 
+// QuoteExactOutput simulates a Momentum exact-output swap.
+//
+// Parameters:
+//   - ctx: Request context.
+//   - params: Quote parameters.
+//
+// Returns:
+//   - Quote result.
+//   - Quote error.
+//
+// Version:
+//   - 2026-09-01: Added.
+func (c *Client) QuoteExactOutput(ctx context.Context, params QuoteExactOutputParams) (QuoteResult, error) {
+	if c == nil || c.quoter == nil {
+		return QuoteResult{}, fmt.Errorf("failed to quote momentum clmm exact output: client=null")
+	}
+	return c.quoter.QuoteExactOutput(ctx, params)
+}
+
 // Swaps gets historical Momentum swaps.
 //
 // Parameters:

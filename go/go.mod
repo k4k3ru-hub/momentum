@@ -2,7 +2,7 @@ module github.com/k4k3ru-hub/momentum/go
 
 go 1.25.7
 
-require github.com/k4k3ru-hub/onchain/go v0.0.0-20260830151511-f3c3a417c589
+require github.com/k4k3ru-hub/onchain/go v0.0.0-20260901011638-d55328c7f389
 
 require (
 	github.com/golang/protobuf v1.5.4 // indirect

@@ -10,13 +10,17 @@ import (
 	onchainSui "github.com/k4k3ru-hub/onchain/go/sui"
 )
 
-type testSimulator struct{ result *onchainSui.SimulationResult }
+type testSimulator struct {
+	result  *onchainSui.SimulationResult
+	request onchainSui.SimulationRequest
+}
 
 // SimulateTransaction returns the configured simulation result.
 //
 // Version:
 //   - 2026-08-31: Added.
-func (s *testSimulator) SimulateTransaction(context.Context, onchainSui.SimulationRequest) (*onchainSui.SimulationResult, error) {
+func (s *testSimulator) SimulateTransaction(_ context.Context, request onchainSui.SimulationRequest) (*onchainSui.SimulationResult, error) {
+	s.request = request
 	return s.result, nil
 }
 
@@ -39,6 +43,16 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	if err != nil || quote.AmountOut != 99 {
 		t.Fatalf("QuoteExactInput()=%+v, %v", quote, err)
 	}
+	if got := simulator.request.Transaction.Inputs[2].Pure; len(got) != 1 || got[0] != 1 {
+		t.Fatalf("QuoteExactInput() exact_input BCS = %v", got)
+	}
+	quote, err = quoter.QuoteExactOutput(context.Background(), QuoteExactOutputParams{Sender: sender, Pool: *pool, AmountOut: 99, XForY: true, SqrtPriceLimit: big.NewInt(5)})
+	if err != nil || quote.AmountIn != 99 || quote.AmountOut != 99 {
+		t.Fatalf("QuoteExactOutput()=%+v, %v", quote, err)
+	}
+	if got := simulator.request.Transaction.Inputs[2].Pure; len(got) != 1 || got[0] != 0 {
+		t.Fatalf("QuoteExactOutput() exact_input BCS = %v", got)
+	}
 	builder := onchainSui.NewProgrammableTransactionBuilder()
 	flash, err := AppendFlashSwap(builder, testDeployment(), *pool, true, 100, big.NewInt(5))
 	if err != nil {
@@ -50,6 +64,29 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	tx, err := builder.Build()
 	if err != nil || len(tx.Commands) != 2 {
 		t.Fatalf("Build()=%+v, %v", tx, err)
+	}
+}
+
+func TestAppendAtomicSwap(t *testing.T) {
+	poolAddress, _ := onchainSui.ParseAddress("0x9")
+	builder := onchainSui.NewProgrammableTransactionBuilder()
+	balanceX, _ := builder.MoveCall(onchainSui.MoveCall{Package: poolAddress, Module: "test", Function: "balance_x"})
+	balanceY, _ := builder.MoveCall(onchainSui.MoveCall{Package: poolAddress, Module: "test", Function: "balance_y"})
+	amount, _ := builder.MoveCall(onchainSui.MoveCall{Package: poolAddress, Module: "test", Function: "amount"})
+	pool := Pool{Address: poolAddress, InitialVersion: 3, CoinTypeX: "0x2::sui::SUI", CoinTypeY: "0x3::usdc::USDC"}
+	result, err := AppendAtomicSwap(builder, testDeployment(), AtomicSwapParams{Pool: pool, Balances: SwapBalances{BalanceX: balanceX, BalanceY: balanceY}, XForY: true, AmountIn: amount, SqrtPriceLimit: big.NewInt(5)})
+	if err != nil {
+		t.Fatalf("AppendAtomicSwap() returned an unexpected error: %v", err)
+	}
+	if result.BalanceX != balanceX || result.BalanceY != balanceY {
+		t.Fatalf("AppendAtomicSwap() = %+v", result)
+	}
+	tx, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned an unexpected error: %v", err)
+	}
+	if len(tx.Commands) != 10 {
+		t.Fatalf("len(Commands) = %d, want 10", len(tx.Commands))
 	}
 }
 
