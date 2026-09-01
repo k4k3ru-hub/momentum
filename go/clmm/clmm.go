@@ -380,6 +380,7 @@ type Swap struct {
 //   - Parse error.
 //
 // Version:
+//   - 2026-09-01: Accepted the deployed trade::SwapEvent type.
 //   - 2026-08-30: Added.
 func ParseSwapEvent(event onchainSui.Event) (Swap, error) {
 	swap, err := parseSwapJSON(event.Type, event.JSON)
@@ -411,7 +412,7 @@ func ParseLiveSwapEvent(event onchainSui.LiveEvent) (Swap, error) {
 }
 
 func parseSwapJSON(eventType string, data json.RawMessage) (Swap, error) {
-	if !strings.HasSuffix(eventType, "::events::SwapEvent") {
+	if !strings.HasSuffix(eventType, "::trade::SwapEvent") {
 		return Swap{}, fmt.Errorf("failed to parse momentum clmm swap event: event_type=invalid")
 	}
 	var v struct {

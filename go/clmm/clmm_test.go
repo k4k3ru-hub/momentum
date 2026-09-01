@@ -70,6 +70,20 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	}
 }
 
+func TestParseSwapEventUsesDeployedTradeEvent(t *testing.T) {
+	event := onchainSui.Event{
+		Type: "0x70285592c97965e811e0c6f98dccc3a9c2b4ad854b3594faab9597ada267b860::trade::SwapEvent",
+		JSON: json.RawMessage(`{"amount_x":"200000000000","amount_y":"30756991","fee_amount":"61514","pool_id":"0xc7993ebf7a1e629a942f69e9b3a8dccc3a96db0df3991812578815a0dda08a91","protocol_fee":"15378","sender":"0xb1e82f41130924731ea5e336b7fb9bec6b782ce6b9838b4402fe0e97a42717cf","sqrt_price_after":"228492341652352362","sqrt_price_before":"228451781711080579","x_for_y":false}`),
+	}
+	swap, err := ParseSwapEvent(event)
+	if err != nil {
+		t.Fatalf("ParseSwapEvent() returned an unexpected error: %v", err)
+	}
+	if swap.XForY || swap.AmountX != 200_000_000_000 || swap.AmountY != 30_756_991 || swap.FeeAmount != 61_514 || swap.ProtocolFee != 15_378 {
+		t.Fatalf("ParseSwapEvent() = %+v", swap)
+	}
+}
+
 func TestAppendAtomicSwap(t *testing.T) {
 	poolAddress, _ := onchainSui.ParseAddress("0x9")
 	builder := onchainSui.NewProgrammableTransactionBuilder()
