@@ -26,10 +26,13 @@ func (s *testSimulator) SimulateTransaction(_ context.Context, request onchainSu
 
 func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	poolAddress, _ := onchainSui.ParseAddress("0x9")
-	object := &onchainSui.Object{Address: poolAddress, Version: 3, Move: &onchainSui.MoveObject{Type: "0x1::pool::Pool<0x2::sui::SUI, 0x3::usdc::USDC>", JSON: json.RawMessage(`{"reserve_x":"100","reserve_y":"200","current_sqrt_price":"10","liquidity":"300","current_tick_index":{"bits":1},"fee_rate":"100"}`)}}
+	object := &onchainSui.Object{Address: poolAddress, Version: 3, Move: &onchainSui.MoveObject{Type: "0x1::pool::Pool<0x2::sui::SUI, 0x3::usdc::USDC>", JSON: json.RawMessage(`{"reserve_x":"100","reserve_y":"200","sqrt_price":"10","liquidity":"300","tick_index":{"bits":"4294967295"},"swap_fee_rate":"100"}`)}}
 	pool, err := ParsePool(object)
 	if err != nil {
 		t.Fatalf("ParsePool() returned an unexpected error: %v", err)
+	}
+	if pool.SqrtPrice.String() != "10" || pool.TickIndex != -1 || pool.FeeRate != 100 {
+		t.Fatalf("ParsePool() = %+v", pool)
 	}
 	value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, 99)

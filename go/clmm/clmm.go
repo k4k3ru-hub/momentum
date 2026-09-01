@@ -67,6 +67,7 @@ type Pool struct {
 //   - Parse error.
 //
 // Version:
+//   - 2026-09-01: Parsed the deployed pool's sqrt_price, tick_index, and swap_fee_rate fields.
 //   - 2026-08-30: Added.
 func ParsePool(object *onchainSui.Object) (*Pool, error) {
 	if object == nil || object.Move == nil {
@@ -79,12 +80,12 @@ func ParsePool(object *onchainSui.Object) (*Pool, error) {
 	var value struct {
 		ReserveX  json.RawMessage `json:"reserve_x"`
 		ReserveY  json.RawMessage `json:"reserve_y"`
-		SqrtPrice json.RawMessage `json:"current_sqrt_price"`
+		SqrtPrice json.RawMessage `json:"sqrt_price"`
 		Liquidity json.RawMessage `json:"liquidity"`
 		Tick      struct {
-			Bits uint32 `json:"bits"`
-		} `json:"current_tick_index"`
-		FeeRate json.RawMessage `json:"fee_rate"`
+			Bits json.RawMessage `json:"bits"`
+		} `json:"tick_index"`
+		FeeRate json.RawMessage `json:"swap_fee_rate"`
 	}
 	if err := json.Unmarshal(object.Move.JSON, &value); err != nil {
 		return nil, fmt.Errorf("failed to parse momentum clmm pool: failed to decode object: %w", err)
@@ -107,9 +108,13 @@ func ParsePool(object *onchainSui.Object) (*Pool, error) {
 	}
 	fee, err := jsonUint64(value.FeeRate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse momentum clmm pool: fee_rate=invalid")
+		return nil, fmt.Errorf("failed to parse momentum clmm pool: swap_fee_rate=invalid")
 	}
-	return &Pool{Address: object.Address, InitialVersion: object.Version, CoinTypeX: types[0], CoinTypeY: types[1], ReserveX: x, ReserveY: y, SqrtPrice: sqrt, Liquidity: liquidity, TickIndex: int32(value.Tick.Bits), FeeRate: fee}, nil
+	tickBits, err := jsonUint64(value.Tick.Bits)
+	if err != nil || tickBits > uint64(^uint32(0)) {
+		return nil, fmt.Errorf("failed to parse momentum clmm pool: tick_index=invalid")
+	}
+	return &Pool{Address: object.Address, InitialVersion: object.Version, CoinTypeX: types[0], CoinTypeY: types[1], ReserveX: x, ReserveY: y, SqrtPrice: sqrt, Liquidity: liquidity, TickIndex: int32(uint32(tickBits)), FeeRate: fee}, nil
 }
 
 type Simulator interface {
