@@ -36,14 +36,15 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	}
 	value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, 99)
-	simulator := &testSimulator{result: &onchainSui.SimulationResult{CommandResults: []onchainSui.SimulationCommandResult{{}, {ReturnValues: []onchainSui.CommandOutput{{BCS: value}}}}}}
+	checkpoint := onchainSui.CheckpointSequenceNumber(123)
+	simulator := &testSimulator{result: &onchainSui.SimulationResult{Checkpoint: checkpoint, CommandResults: []onchainSui.SimulationCommandResult{{}, {ReturnValues: []onchainSui.CommandOutput{{BCS: value}}}}}}
 	quoter, err := NewQuoter(testDeployment(), simulator)
 	if err != nil {
 		t.Fatalf("NewQuoter() returned an unexpected error: %v", err)
 	}
 	sender, _ := onchainSui.ParseAddress("0xa")
 	quote, err := quoter.QuoteExactInput(context.Background(), QuoteExactInputParams{Sender: sender, Pool: *pool, AmountIn: 100, XForY: true, SqrtPriceLimit: big.NewInt(5)})
-	if err != nil || quote.AmountOut != 99 {
+	if err != nil || quote.AmountOut != 99 || quote.Checkpoint != checkpoint {
 		t.Fatalf("QuoteExactInput()=%+v, %v", quote, err)
 	}
 	if got := simulator.request.Transaction.Inputs[2].Pure; len(got) != 1 || got[0] != 1 {
