@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"testing"
+	"time"
 
 	onchainSui "github.com/k4k3ru-hub/onchain/go/sui"
 )
@@ -95,9 +96,20 @@ func TestQuotePairUsesOneSimulationCheckpoint(t *testing.T) {
 }
 
 func TestParseSwapEventUsesDeployedTradeEvent(t *testing.T) {
+	checkpoint := onchainSui.CheckpointSequenceNumber(42)
+	sequenceNumber := uint64(7)
+	transaction, err := onchainSui.ParseTransactionDigest("11111111111111111111111111111111")
+	if err != nil {
+		t.Fatalf("ParseTransactionDigest() returned an unexpected error: %v", err)
+	}
+	timestamp := time.Date(2026, time.September, 3, 0, 0, 0, 0, time.UTC)
 	event := onchainSui.Event{
-		Type: "0x70285592c97965e811e0c6f98dccc3a9c2b4ad854b3594faab9597ada267b860::trade::SwapEvent",
-		JSON: json.RawMessage(`{"amount_x":"200000000000","amount_y":"30756991","fee_amount":"61514","pool_id":"0xc7993ebf7a1e629a942f69e9b3a8dccc3a96db0df3991812578815a0dda08a91","protocol_fee":"15378","sender":"0xb1e82f41130924731ea5e336b7fb9bec6b782ce6b9838b4402fe0e97a42717cf","sqrt_price_after":"228492341652352362","sqrt_price_before":"228451781711080579","x_for_y":false}`),
+		Checkpoint:     checkpoint,
+		SequenceNumber: sequenceNumber,
+		Transaction:    transaction,
+		Timestamp:      timestamp,
+		Type:           "0x70285592c97965e811e0c6f98dccc3a9c2b4ad854b3594faab9597ada267b860::trade::SwapEvent",
+		JSON:           json.RawMessage(`{"amount_x":"200000000000","amount_y":"30756991","fee_amount":"61514","pool_id":"0xc7993ebf7a1e629a942f69e9b3a8dccc3a96db0df3991812578815a0dda08a91","protocol_fee":"15378","sender":"0xb1e82f41130924731ea5e336b7fb9bec6b782ce6b9838b4402fe0e97a42717cf","sqrt_price_after":"228492341652352362","sqrt_price_before":"228451781711080579","x_for_y":false}`),
 	}
 	swap, err := ParseSwapEvent(event)
 	if err != nil {
@@ -105,6 +117,9 @@ func TestParseSwapEventUsesDeployedTradeEvent(t *testing.T) {
 	}
 	if swap.XForY || swap.AmountX != 200_000_000_000 || swap.AmountY != 30_756_991 || swap.FeeAmount != 61_514 || swap.ProtocolFee != 15_378 {
 		t.Fatalf("ParseSwapEvent() = %+v", swap)
+	}
+	if swap.Checkpoint != checkpoint || swap.SequenceNumber != sequenceNumber || swap.Transaction != transaction || !swap.Timestamp.Equal(timestamp) {
+		t.Fatalf("ParseSwapEvent() metadata = %+v", swap)
 	}
 }
 
