@@ -2,6 +2,8 @@ module github.com/k4k3ru-hub/momentum/go
 
 go 1.25.7
 
+toolchain go1.27.3
+
 require github.com/k4k3ru-hub/onchain/go v0.0.0-20260901072053-b8ba7e81b690
 
 require (
